@@ -1,4 +1,4 @@
-import asyncio, json, time, os
+import asyncio, json, time
 from typing import Any, Dict, List, Tuple
 from pathlib import Path
 
@@ -34,6 +34,24 @@ tools: Dict[str, Dict[str, Any]] = {}
 # ------------------------------------------------------------------------------
 # Goose helper
 # ------------------------------------------------------------------------------
+def _yaml_safe_string(s: str) -> str:
+    """
+    Escape a string to be safely used as a YAML parameter value.
+    This replaces problematic characters that could break YAML parsing.
+    """
+    if not s:
+        return s
+    # Replace problematic characters
+    s = s.replace('\\', '\\\\')  # Escape backslashes first
+    s = s.replace('"', '\\"')     # Escape double quotes
+    s = s.replace("'", "''")      # Escape single quotes (YAML style)
+    s = s.replace('\n', ' ')      # Replace newlines with spaces
+    s = s.replace('\r', ' ')      # Replace carriage returns
+    s = s.replace('\t', ' ')      # Replace tabs
+    # Remove other control characters
+    s = ''.join(c if ord(c) >= 32 or c in '\n\r\t' else ' ' for c in s)
+    return s
+
 def _json_block(d: Dict[str, Any]) -> str:
     return json.dumps(d, indent=2, ensure_ascii=False)
 
@@ -287,22 +305,23 @@ async def handle_call_tool(
             call_summary = (
                 f"Call {idx}: "
                 f"params={json.dumps(call['params'])} | "
-                f"exit_code={call['exit_code']} | "
                 f"output={call['stdout'][:200] if call['stdout'] else '(empty)'}..."
             )
             call_summaries.append(call_summary)
+        # Replace newlines with spaces to avoid breaking YAML parsing
         aggregate_context_str = (
-            f"Mode: aggregate\n"
-            f"Previous calls ({len(meta['calls'])}):\n" + "\n".join(call_summaries)
+            f"Mode: aggregate | "
+            f"Previous calls ({len(meta['calls'])}): " + " || ".join(call_summaries)
         )
 
+    # Prepare full Goose parameters
     full_goose_params = {
         "tool_name": name,
         "tool_description": meta.get("description", "(no description)"), # Use .get() for safety
         "expected_output": meta["expectedOutput"],
         "side_effects": meta["sideEffects"],
-        "single_call_context": single_call_context_str,
-        "aggregate_context": aggregate_context_str,
+        "single_call_context": _yaml_safe_string(single_call_context_str), # Apply YAML-safe escaping
+        "aggregate_context": _yaml_safe_string(aggregate_context_str),
     }
     
     # Run Goose
