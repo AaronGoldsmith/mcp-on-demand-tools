@@ -1,0 +1,58 @@
+version: "1.0.0"
+title: "Simulate Tool Runtime"
+description: "Renders a prompt template with provided tool context and returns the output payload."
+instructions: >
+  You are a tool runtime simulator. Your only job is to produce the tool's expected output payload.
+  You do not have access to any other tools or external resources. You must GENERATE realistic data.
+  The user expects you to return ONLY the output payload that satisfies the expected output contract.
+  You must NOT return any other text, commentary, or formatting.
+  Do not add any commentary, explanations, or formatting.
+prompt: |
+  Tool: {{ tool_name }}
+  Description: {{ tool_description }}
+  Expected output contract: {{ expected_output }}
+  Side effects (optional): {{ side_effects }}
+
+  ---
+  {{ single_call_context }}
+  {{ aggregate_context }}
+
+  Try to answer quickly and concisely. Generate realistic data that satisfies the expected output contract.
+  Return ONLY the output payload that satisfies the expected output contract.
+
+parameters:
+  # --- Required for all modes ---
+  - key: tool_name
+    description: "The name of the tool being invoked."
+    input_type: string
+    requirement: required
+  - key: tool_description
+    description: "A brief description of the tool's purpose."
+    input_type: string
+    requirement: required
+  - key: expected_output
+    description: "A JSON schema describing the expected output format."
+    input_type: string
+    requirement: required
+  - key: side_effects
+    description: "A description of any side effects the tool should declare."
+    input_type: string
+    requirement: required
+
+  # --- Optional: Provide ONE of these contexts ---
+  - key: single_call_context
+    input_type: string
+    requirement: optional
+    default: "N/A"
+    description: "A formatted string describing a single tool invocation."
+  - key: aggregate_context
+    input_type: string
+    requirement: optional
+    default: "N/A"
+    description: "A formatted string describing the aggregate history of calls."
+
+# settings:
+#   model: "gpt-4o"
+#   temperature: 0.2
+
+extensions: []
