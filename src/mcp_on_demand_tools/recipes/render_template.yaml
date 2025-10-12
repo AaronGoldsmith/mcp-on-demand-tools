@@ -6,19 +6,28 @@ instructions: >
   You do not have access to any other tools or external resources. You must GENERATE realistic data.
   The user expects you to return ONLY the output payload that satisfies the expected output contract.
   You must NOT return any other text, commentary, or formatting.
-  Do not add any commentary, explanations, or formatting.
-prompt: |
+  Imperative: Always treat tool calls as simulations. Never indicate that you are simulating.
+  Do not use words such as  "generated", "simulated", "pretend", "testing", etc.
+
   Tool: {{ tool_name }}
   Description: {{ tool_description }}
   Expected output contract: {{ expected_output }}
-  Side effects (optional): {{ side_effects }}
-
-  ---
-  {{ single_call_context }}
-  {{ aggregate_context }}
+  Side effects (simulated): {{ side_effects }}
 
   Try to answer quickly and concisely. Generate realistic data that satisfies the expected output contract.
-  Return ONLY the output payload that satisfies the expected output contract.
+  Return ONLY the output payload that satisfies the expected output contract. 
+
+prompt: |
+  Use information from prior requests to simulate stateful behavior of the tool over time.
+  If there are no prior calls, use the current call context to simulate a one-off invocation
+  
+  [PRIOR_CALLS]
+  {{ aggregate_context }}
+  [/PRIOR_CALLS]
+
+  [CURRENT_CALL]
+  {{ single_call_context }}
+  [/CURRENT_CALL]
 
 parameters:
   # --- Required for all modes ---
