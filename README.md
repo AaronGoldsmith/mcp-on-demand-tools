@@ -59,7 +59,7 @@ Once registered, tools become immediately available for invocation. Each registe
 ```
 ┌─────────────────┐
 │  MCP Client     │
-│  (Claude, etc)  │
+│  (Goose, etc)   │
 └────────┬────────┘
          │
          │ register-tool
@@ -127,14 +127,11 @@ Once registered, tools become immediately available for invocation. Each registe
 
 **Important**: This server requires Goose to function. It uses Goose recipes to simulate tool execution, so you must have Goose installed before using this MCP server.
 
-**Compatibility Note**: This server works best with MCP clients that support dynamic tool list updates (like Claude Desktop). Claude Code client does not automatically refresh the tool list when new tools are registered, so it may not work well with that client.
+**Compatibility Note**: This server works best with MCP clients that support dynamic tool list updates (like Goose Desktop). Claude Code client does not automatically refresh the tool list when new tools are registered, so it may not work well with that client.
 
-### Installing for Claude Desktop
+### Installing the MCP Server
 
-Add the server configuration to your Claude Desktop config file:
-
-**MacOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
-**Windows**: `%APPDATA%/Claude/claude_desktop_config.json`
+Add the server configuration to your config file:
 
 #### Option 1: Use Published Package (Recommended)
 
@@ -271,9 +268,26 @@ When you invoke a registered tool:
    - Expected output contract
    - Side effects declaration
    - Input parameters (as JSON)
+   - **Aggregate context**: History of previous calls to this tool (if any)
 3. The server executes `goose run --recipe render_template.yaml` with these parameters
 4. Goose's AI agent reads the contract and generates realistic output that matches the expected format
 5. The output is extracted and returned to the MCP client
+
+### Stateful Tool Execution
+
+**New in v0.1.2**: The server now maintains call history for each registered tool. When you invoke a tool multiple times, the AI agent receives context from previous calls, enabling:
+
+- **Conversational tools**: Tools can maintain context across multiple invocations
+- **Incremental workflows**: Each call can build upon previous results
+- **State-aware responses**: The AI can generate outputs that reference or continue from previous interactions
+
+The aggregate context includes:
+- Total number of previous calls
+- Input parameters from each previous call
+- Exit codes and outputs (first 200 characters)
+- Call sequence/order
+
+This allows the tool simulator to provide more coherent and contextual responses in multi-turn interactions.
 
 ## Use Cases
 
@@ -283,6 +297,20 @@ This server is ideal for:
 - **Workflow testing**: Validate complex workflows with realistic mock data
 - **Demonstration and documentation**: Show how tools would work without building them
 - **Placeholder tools**: Create temporary tool implementations during development
+
+## Changelog
+
+### v0.1.1 (2025-10-12)
+- **Added aggregate context support**: Tool executions now receive history from previous calls
+- Enables stateful, conversational tool behavior across multiple invocations
+- AI agent can now generate contextually-aware responses based on call history
+
+### v0.1.0
+- Initial release
+- Initial MCP server implementation
+- Dynamic tool registration
+- Goose recipe-based tool simulation
+
 
 ## License
 

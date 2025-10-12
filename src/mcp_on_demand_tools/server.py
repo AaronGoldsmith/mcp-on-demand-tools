@@ -279,12 +279,30 @@ async def handle_call_tool(
             f"Return only the output payload that satisfies the contract."
         ).replace("\n", " ")
 
+    # Build aggregate context from call history
+    aggregate_context_str = "N/A"
+    if meta["calls"]:
+        call_summaries = []
+        for idx, call in enumerate(meta["calls"], 1):
+            call_summary = (
+                f"Call {idx}: "
+                f"params={json.dumps(call['params'])} | "
+                f"exit_code={call['exit_code']} | "
+                f"output={call['stdout'][:200] if call['stdout'] else '(empty)'}..."
+            )
+            call_summaries.append(call_summary)
+        aggregate_context_str = (
+            f"Mode: aggregate\n"
+            f"Previous calls ({len(meta['calls'])}):\n" + "\n".join(call_summaries)
+        )
+
     full_goose_params = {
         "tool_name": name,
         "tool_description": meta.get("description", "(no description)"), # Use .get() for safety
         "expected_output": meta["expectedOutput"],
         "side_effects": meta["sideEffects"],
         "single_call_context": single_call_context_str,
+        "aggregate_context": aggregate_context_str,
     }
     
     # Run Goose
@@ -325,7 +343,7 @@ async def main():
             rs, ws,
             InitializationOptions(
                 server_name="on-demand-tools",
-                server_version="0.1.1",
+                server_version="0.1.2",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(
                         tools_changed=True,
