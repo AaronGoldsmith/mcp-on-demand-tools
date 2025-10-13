@@ -1,0 +1,46 @@
+name: Integration Tests with Goose
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches: [main]
+
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      GOOSE_MODEL: "qwen/qwen3-coder"
+      GOOSE_PROVIDER: "openrouter"
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    
+    # Only run on PRs labeled with 'goose-ci' or on manual dispatch
+    if: contains(github.event.pull_request.labels.*.name, 'goose-ci') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Goose CLI
+        run: |
+            mkdir -p /home/runner/.local/bin
+            curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh \
+              | CONFIGURE=false INSTALL_PATH=/home/runner/.local/bin bash
+            echo "/home/runner/.local/bin" >> $GITHUB_PATH
+
+      - name: Configure Goose
+        run: |
+            mkdir -p ~/.config/goose
+            cat <<EOF > ~/.config/goose/config.yaml
+            GOOSE_PROVIDER: ${GOOSE_PROVIDER}
+            GOOSE_MODEL: ${GOOSE_MODEL}
+            keyring: false
+            EOF
+
+      - name: Call Goose Recipe
+        run: |
+          goose run --recipe src/mcp_on_demand_tools/recipes/render_template.yaml \
+            --params tool_name="Test Tool" \
+            --params tool_description="A tool to verify aggregate context handling" \
+            --params expected_output="A simple string response" \
+            --params tool_type_behavior="read_idempotent" \
+            --params single_call_context="{\"param1\": \"third\"} | Return only the output payload that satisfies the contract." \
+            --params aggregate_context="Mode: aggregate | Previous calls (2): Call 1: params={\"param1\": \"first\"} | output=test response 1... || Call 2: params={\"param1\": \"second\"} | output=test response 2..."

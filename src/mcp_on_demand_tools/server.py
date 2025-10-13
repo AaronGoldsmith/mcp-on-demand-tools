@@ -1,4 +1,4 @@
-import asyncio, json, time, os
+import asyncio, json, time
 from typing import Any, Dict, List, Tuple
 from pathlib import Path
 
@@ -26,7 +26,7 @@ server = Server("on-demand-tools")
 #   "paramSchema": dict,        # JSON Schema for {"params": {...}} on call
 #   "expectedOutput": str,      # contract fallback if Goose stdout empty
 #   "sideEffects": str,
-#   "promptTemplate": str,      # Template string injected into renderRecipe (param 'template')
+#   "toolTypeBehavior": str,    # defines stateful/stateless behavior
 #   "calls": [ { "params": dict, "exit_code": int, "stdout": str, "stderr": str, "ts": float } ]
 # }
 tools: Dict[str, Dict[str, Any]] = {}
@@ -34,8 +34,25 @@ tools: Dict[str, Dict[str, Any]] = {}
 # ------------------------------------------------------------------------------
 # Goose helper
 # ------------------------------------------------------------------------------
-def _json_block(d: Dict[str, Any]) -> str:
-    return json.dumps(d, indent=2, ensure_ascii=False)
+def _yaml_safe_string(s: str) -> str:
+    """
+    Escape a string to be safely used as a YAML parameter value.
+    This replaces problematic characters that could break YAML parsing.
+    """
+    if not s:
+        return s
+    # Replace problematic characters
+    s = s.replace('\\', '\\\\')  # Escape backslashes first
+    s = s.replace('"', '\\"')     # Escape double quotes
+    s = s.replace("```", "\\`\\`\\`") # Escape triple backticks
+    s = s.replace("'", "''")      # Escape single quotes (YAML style)
+    s = s.replace('\n', ' ')      # Replace newlines with spaces
+    s = s.replace('\r', ' ')      # Replace carriage returns
+    s = s.replace('\t', ' ')      # Replace tabs
+    # Remove other control characters
+    s = ''.join(c if ord(c) >= 32 or c in '\n\r\t' else ' ' for c in s)
+    return s
+
 
 def _extract_goose_output(goose_stdout: str) -> str:
     """Extracts the final result from Goose's stdout, filtering out debug lines."""
@@ -51,7 +68,7 @@ def _extract_goose_output(goose_stdout: str) -> str:
         # If the marker isn't found for some reason, fall back to just the last line
         return lines[-1]
     
-async def _run_goose(recipe: str, params: dict[str, any],
+async def _run_goose(recipe: str, params: dict[str, Any],
                      no_session: bool = True,
                      timeout_sec: int | None = None) -> Tuple[int, str, str, List[str]]:
     """
@@ -86,59 +103,6 @@ async def _run_goose(recipe: str, params: dict[str, any],
         rc, out_b, err_b = 127, b"", b"goose binary not found"
 
     return rc or 0, out_b.decode(errors="replace"), err_b.decode(errors="replace"), cmd
-
-def _json_block(d: Dict[str, Any]) -> str:
-    return json.dumps(d, indent=2, ensure_ascii=False)
-
-# ------------------------------------------------------------------------------
-# Resources
-#   tool://internal/<name>          -> definition
-#   stats://internal/summary        -> summary
-# ------------------------------------------------------------------------------
-
-@server.list_resources()
-async def handle_list_resources() -> List[types.Resource]:
-    out: List[types.Resource] = []
-    for n, meta in tools.items():
-        out.append(types.Resource(
-            uri=AnyUrl(f"tool://internal/{n}"),
-            name=f"Tool: {n}",
-            description=meta.get("description") or "(no description)",
-            mimeType="application/json",
-        ))
-    out.append(types.Resource(
-        uri=AnyUrl("stats://internal/summary"),
-        name="Stats",
-        description="Counts and top calls",
-        mimeType="application/json",
-    ))
-    return out
-
-@server.read_resource()
-async def handle_read_resource(uri: AnyUrl) -> str:
-    scheme = uri.scheme
-    path = (uri.path or "").lstrip("/")
-
-    if scheme == "tool":
-        name = path
-        if name not in tools:
-            raise ValueError(f"Unknown tool: {name}")
-        meta = tools[name].copy()
-        meta["callsRecorded"] = len(meta.get("calls", []))
-        meta.pop("calls", None)
-        return _json_block({"name": name, **meta})
-
-    if scheme == "stats":
-        total_tools = len(tools)
-        total_calls = sum(len(m.get("calls", [])) for m in tools.values())
-        top = sorted(
-            ((n, len(m.get("calls", []))) for n, m in tools.items()),
-            key=lambda t: t[1],
-            reverse=True
-        )[:10]
-        return _json_block({"total_tools": total_tools, "total_calls": total_calls, "top": top})
-
-    raise ValueError(f"Unsupported URI scheme: {scheme}")
 
 
 # ------------------------------------------------------------------------------
@@ -186,7 +150,17 @@ async def handle_list_tools() -> List[types.Tool]:
     base = [
         types.Tool(
             name="register-tool",
-            description="Register a tool request for a background agent to synthesize. paramSchema is a JSON object containing dictionaries with keys `description` and `type`",
+            description="""Register a tool request for a background agent to synthesize.
+                `paramSchema` is a JSON object containing dicts with keys `description` and `type` for each parameter.
+                `expectedOutput` is a string describing the expected output contract.
+                `sideEffects` is a string describing any side effects of the tool (optional).
+                `toolBehaviorType` is a string indicating the tool's behavior type:
+                    - read_idempotent: no state, same input = same output
+                    - write_idempotent: state, same input = same output
+                    - create_non_idempotent: state, same input != same output
+                    - update_idempotent: state, same input = same output
+                    - delete_idempotent: state
+            """,
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -194,10 +168,10 @@ async def handle_list_tools() -> List[types.Tool]:
                     "description": {"type": "string"},
                     "paramSchema": {"type": "object"},
                     "expectedOutput": {"type": "string"},
+                    "toolBehaviorType": {"type": "string"},
                     "sideEffects": {"type": "string"},
-                    "promptTemplate": {"type": "string"},
                 },
-                "required": ["name", "description", "paramSchema", "expectedOutput", "sideEffects"],
+                "required": ["name", "description", "paramSchema", "expectedOutput", "toolBehaviorType"],
                 "additionalProperties": False,
             },
         )
@@ -205,7 +179,7 @@ async def handle_list_tools() -> List[types.Tool]:
     dynamic = [
         types.Tool(
             name=n,
-            description=f"{m.get('description')} | side effects: {m['sideEffects']}",
+            description=f"{m.get('description')} | side effects: {m.get('sideEffects')}",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -232,7 +206,7 @@ async def handle_call_tool(
 ) -> List[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     if name == "register-tool":
         args = arguments or {}
-        if not all(k in args for k in ["name", "description", "paramSchema", "expectedOutput", "sideEffects"]):
+        if not all(k in args for k in ["name", "description", "paramSchema", "expectedOutput", "toolBehaviorType"]):
             raise ValueError("Missing one or more required arguments for register-tool")
         
         n = args["name"]
@@ -248,10 +222,10 @@ async def handle_call_tool(
             "description": args["description"],
             "paramSchema": param_schema, # Use the potentially parsed object
             "expectedOutput": args["expectedOutput"],
-            "sideEffects": args["sideEffects"],
+            "toolTypeBehavior": args["toolBehaviorType"],
+            "sideEffects": args.get("sideEffects"),
             "calls": [],
         }
-        await server.request_context.session.send_resource_list_changed()
         await server.request_context.session.send_tool_list_changed()
         return [types.TextContent(type="text", text=f"Registered tool '{n}'.")]
 
@@ -287,22 +261,24 @@ async def handle_call_tool(
             call_summary = (
                 f"Call {idx}: "
                 f"params={json.dumps(call['params'])} | "
-                f"exit_code={call['exit_code']} | "
                 f"output={call['stdout'][:200] if call['stdout'] else '(empty)'}..."
             )
             call_summaries.append(call_summary)
+        # Replace newlines with spaces to avoid breaking YAML parsing
         aggregate_context_str = (
-            f"Mode: aggregate\n"
-            f"Previous calls ({len(meta['calls'])}):\n" + "\n".join(call_summaries)
+            f"Mode: aggregate | "
+            f"Previous calls ({len(meta['calls'])}): " + " || ".join(call_summaries)
         )
 
+    # Prepare full Goose parameters
     full_goose_params = {
         "tool_name": name,
-        "tool_description": meta.get("description", "(no description)"), # Use .get() for safety
-        "expected_output": meta["expectedOutput"],
-        "side_effects": meta["sideEffects"],
-        "single_call_context": single_call_context_str,
-        "aggregate_context": aggregate_context_str,
+        "tool_description": _yaml_safe_string(meta["description"]),
+        "expected_output": _yaml_safe_string(meta["expectedOutput"]),
+        "tool_type_behavior": _yaml_safe_string(meta["toolTypeBehavior"]),
+        "side_effects": _yaml_safe_string(meta.get("sideEffects")),
+        "single_call_context": _yaml_safe_string(single_call_context_str), # Apply YAML-safe escaping
+        "aggregate_context": _yaml_safe_string(aggregate_context_str),
     }
     
     # Run Goose
