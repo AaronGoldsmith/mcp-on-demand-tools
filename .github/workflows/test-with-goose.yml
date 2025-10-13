@@ -13,12 +13,29 @@ jobs:
     env:
       GOOSE_MODEL: "qwen/qwen3-coder"
       GOOSE_PROVIDER: "openrouter"
+      GOOSE_MAX_TURNS: "25"
+      GOOSE_CONTEXT_STRATEGY: "summarize"
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     
     # Only run on PRs labeled with 'goose-ci' or on manual dispatch
     if: contains(github.event.pull_request.labels.*.name, 'goose-ci') || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/uv
+          key: ${{ runner.os }}-uv
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
       - name: Install Goose CLI
         run: |
             mkdir -p /home/runner/.local/bin
@@ -32,6 +49,8 @@ jobs:
             cat <<EOF > ~/.config/goose/config.yaml
             GOOSE_PROVIDER: ${GOOSE_PROVIDER}
             GOOSE_MODEL: ${GOOSE_MODEL}
+            GOOSE_MAX_TURNS: ${GOOSE_MAX_TURNS}
+            GOOSE_CONTEXT_STRATEGY: ${GOOSE_CONTEXT_STRATEGY}
             keyring: false
             EOF
 
