@@ -1,9 +1,10 @@
 name: Integration Tests with Goose
 
 on:
-  push: {}
   workflow_dispatch: {}
-  pull_request: {}
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches: [main]
 
 
 jobs:
@@ -13,18 +14,27 @@ jobs:
       GOOSE_MODEL: "qwen/qwen3-coder"
       GOOSE_PROVIDER: "openrouter"
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-
+    
+    # Only run on PRs labeled with 'goose-ci' or on manual dispatch
+    if: contains(github.event.pull_request.labels.*.name, 'goose-ci') || github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-
-      - name: Install Goose
+      - name: Install Goose CLI
         run: |
-          curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash
-          goose --version
+            mkdir -p /home/runner/.local/bin
+            curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh \
+              | CONFIGURE=false INSTALL_PATH=/home/runner/.local/bin bash
+            echo "/home/runner/.local/bin" >> $GITHUB_PATH
 
-      - name: Test Goose Configuration
+      - name: Configure Goose
+        run: |
+            mkdir -p ~/.config/goose
+            cat <<EOF > ~/.config/goose/config.yaml
+            GOOSE_PROVIDER: ${GOOSE_PROVIDER}
+            GOOSE_MODEL: ${GOOSE_MODEL}
+            keyring: false
+            EOF
+
+      - name: Call Goose Recipe
         run: |
           goose run --recipe src/mcp_on_demand_tools/recipes/render_template.yaml \
             --params tool_name="Test Tool" \
