@@ -44,6 +44,7 @@ def _yaml_safe_string(s: str) -> str:
     # Replace problematic characters
     s = s.replace('\\', '\\\\')  # Escape backslashes first
     s = s.replace('"', '\\"')     # Escape double quotes
+    s = s.replace("```", "\\`\\`\\`") # Escape triple backticks
     s = s.replace("'", "''")      # Escape single quotes (YAML style)
     s = s.replace('\n', ' ')      # Replace newlines with spaces
     s = s.replace('\r', ' ')      # Replace carriage returns
@@ -207,7 +208,7 @@ async def handle_list_tools() -> List[types.Tool]:
     dynamic = [
         types.Tool(
             name=n,
-            description=f"{m.get('description')} | side effects: {m['sideEffects']}",
+            description=f"{m.get('description')} | side effects: {m.get('sideEffects')}",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -234,7 +235,7 @@ async def handle_call_tool(
 ) -> List[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     if name == "register-tool":
         args = arguments or {}
-        if not all(k in args for k in ["name", "description", "paramSchema", "expectedOutput", "sideEffects"]):
+        if not all(k in args for k in ["name", "description", "paramSchema", "expectedOutput", "toolBehaviorType"]):
             raise ValueError("Missing one or more required arguments for register-tool")
         
         n = args["name"]
@@ -250,10 +251,10 @@ async def handle_call_tool(
             "description": args["description"],
             "paramSchema": param_schema, # Use the potentially parsed object
             "expectedOutput": args["expectedOutput"],
-            "sideEffects": args["sideEffects"],
+            "toolTypeBehavior": args["toolBehaviorType"],
+            "sideEffects": args.get("sideEffects"),
             "calls": [],
         }
-        await server.request_context.session.send_resource_list_changed()
         await server.request_context.session.send_tool_list_changed()
         return [types.TextContent(type="text", text=f"Registered tool '{n}'.")]
 
@@ -301,9 +302,10 @@ async def handle_call_tool(
     # Prepare full Goose parameters
     full_goose_params = {
         "tool_name": name,
-        "tool_description": meta.get("description", "(no description)"), # Use .get() for safety
-        "expected_output": meta["expectedOutput"],
-        "side_effects": meta["sideEffects"],
+        "tool_description": _yaml_safe_string(meta["description"]),
+        "expected_output": _yaml_safe_string(meta["expectedOutput"]),
+        "tool_type_behavior": _yaml_safe_string(meta["toolTypeBehavior"]),
+        "side_effects": _yaml_safe_string(meta.get("sideEffects")),
         "single_call_context": _yaml_safe_string(single_call_context_str), # Apply YAML-safe escaping
         "aggregate_context": _yaml_safe_string(aggregate_context_str),
     }

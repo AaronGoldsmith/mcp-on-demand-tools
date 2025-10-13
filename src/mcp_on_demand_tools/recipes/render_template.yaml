@@ -55,17 +55,18 @@ parameters:
   - key: side_effects
     description: "A description of any side effects the tool should declare."
     input_type: string
-    requirement: required
+    requirement: optional
+    default: "None"
   - key: single_call_context
     input_type: string
     requirement: optional
-    default: "N/A"
+    default: "{}"
     description: "A formatted string passed in from the current tool call."
   - key: aggregate_context
     input_type: string
     requirement: optional
     default: "N/A"
-    description: "A formatted string describing the aggregate history of calls."
+    description: "A formatted string containing historical context from previous calls."
 
 # settings:
 #   model: "gpt-4o"
