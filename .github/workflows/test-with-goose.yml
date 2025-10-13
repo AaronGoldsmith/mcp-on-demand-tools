@@ -52,6 +52,15 @@ jobs:
             GOOSE_MAX_TURNS: ${GOOSE_MAX_TURNS}
             GOOSE_CONTEXT_STRATEGY: ${GOOSE_CONTEXT_STRATEGY}
             keyring: false
+
+            extensions:
+              on-demand-tools:
+                name: On Demand Tools
+                enabled: true
+                type: stdio
+                cmd: uvx
+                args: [mcp-on-demand-tools@latest]
+                timeout: 300
             EOF
 
       - name: Call Goose Recipe
