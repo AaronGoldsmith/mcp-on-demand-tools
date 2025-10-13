@@ -30,6 +30,6 @@ jobs:
             --params tool_name="Test Tool" \
             --params tool_description="A tool to verify aggregate context handling" \
             --params expected_output="A simple string response" \
-            --params side_effects="None - data generation" \
+            --params tool_type_behavior="read_idempotent" \
             --params single_call_context="{\"param1\": \"third\"} | Return only the output payload that satisfies the contract." \
             --params aggregate_context="Mode: aggregate | Previous calls (2): Call 1: params={\"param1\": \"first\"} | output=test response 1... || Call 2: params={\"param1\": \"second\"} | output=test response 2..."
