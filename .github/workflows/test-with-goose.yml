@@ -1,0 +1,56 @@
+name: Integration Tests with Goose
+
+on:
+  push: {}
+  workflow_dispatch: {}
+  pull_request: {}
+
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    env:
+      OLLAMA_HOST: http://127.0.0.1:11434
+      OLLAMA_CONTEXT_LENGTH: "32768"
+      GOOSE_TOOLSHIM: "1"
+      GOOSE_TOOLSHIM_OLLAMA_MODEL: "llama3.2"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-${{ runner.os }}-llama3.2
+          restore-keys: |
+            ollama-${{ runner.os }}-
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | bash
+
+      - name: Start Ollama
+        run: |
+          nohup env OLLAMA_CONTEXT_LENGTH=$OLLAMA_CONTEXT_LENGTH ollama serve > /tmp/ollama.log 2>&1 &
+          for i in {1..40}; do
+            curl -sSf ${OLLAMA_HOST}/api/tags && break
+            sleep 1
+          done
+
+      - name: Pull model
+        run: ollama pull $GOOSE_TOOLSHIM_OLLAMA_MODEL
+
+      - name: Install Goose
+        run: |
+          curl -fsSL \
+          https://github.com/block/goose/releases/download/stable/download_cli.sh | \
+          CONFIGURE=false bash
+
+      - name: Test Setup
+        run: |
+          goose --version
+          ollama --version
+          ollama list
