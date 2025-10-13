@@ -53,8 +53,6 @@ def _yaml_safe_string(s: str) -> str:
     s = ''.join(c if ord(c) >= 32 or c in '\n\r\t' else ' ' for c in s)
     return s
 
-def _json_block(d: Dict[str, Any]) -> str:
-    return json.dumps(d, indent=2, ensure_ascii=False)
 
 def _extract_goose_output(goose_stdout: str) -> str:
     """Extracts the final result from Goose's stdout, filtering out debug lines."""
@@ -70,7 +68,7 @@ def _extract_goose_output(goose_stdout: str) -> str:
         # If the marker isn't found for some reason, fall back to just the last line
         return lines[-1]
     
-async def _run_goose(recipe: str, params: dict[str, any],
+async def _run_goose(recipe: str, params: dict[str, Any],
                      no_session: bool = True,
                      timeout_sec: int | None = None) -> Tuple[int, str, str, List[str]]:
     """
@@ -105,33 +103,6 @@ async def _run_goose(recipe: str, params: dict[str, any],
         rc, out_b, err_b = 127, b"", b"goose binary not found"
 
     return rc or 0, out_b.decode(errors="replace"), err_b.decode(errors="replace"), cmd
-
-def _json_block(d: Dict[str, Any]) -> str:
-    return json.dumps(d, indent=2, ensure_ascii=False)
-
-# ------------------------------------------------------------------------------
-# Resources
-#   tool://internal/<name>          -> definition
-#   stats://internal/summary        -> summary
-# ------------------------------------------------------------------------------
-
-@server.list_resources()
-async def handle_list_resources() -> List[types.Resource]:
-    out: List[types.Resource] = []
-    for n, meta in tools.items():
-        out.append(types.Resource(
-            uri=AnyUrl(f"tool://internal/{n}"),
-            name=f"Tool: {n}",
-            description=meta.get("description") or "(no description)",
-            mimeType="application/json",
-        ))
-    out.append(types.Resource(
-        uri=AnyUrl("stats://internal/summary"),
-        name="Stats",
-        description="Counts and top calls",
-        mimeType="application/json",
-    ))
-    return out
 
 
 # ------------------------------------------------------------------------------
