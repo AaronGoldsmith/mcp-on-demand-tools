@@ -18,6 +18,7 @@ jobs:
     # Only run on PRs labeled with 'goose-ci' or on manual dispatch
     if: contains(github.event.pull_request.labels.*.name, 'goose-ci') || github.event_name == 'workflow_dispatch'
     steps:
+      - uses: actions/checkout@v4
       - name: Install Goose CLI
         run: |
             mkdir -p /home/runner/.local/bin
