@@ -47,6 +47,6 @@ jobs:
 
       - name: Use Goose to Register and Test Echo Tool
         run: |
-          goose run -t "Register a test tool which echoes back input param1. Call it with three different inputs" \
+          goose run -t "We are testing on demand tools extension. If it's not enabled, enable it now. Once enabled, register a tool which echoes back input param1. Call it with three different inputs" \
             --with-extension "uvx mcp-on-demand-tools" \
             --debug 
