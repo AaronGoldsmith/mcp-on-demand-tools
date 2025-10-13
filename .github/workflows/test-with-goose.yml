@@ -45,6 +45,8 @@ jobs:
             --params single_call_context="{\"param1\": \"third\"} | Return only the output payload that satisfies the contract." \
             --params aggregate_context="Mode: aggregate | Previous calls (2): Call 1: params={\"param1\": \"first\"} | output=test response 1... || Call 2: params={\"param1\": \"second\"} | output=test response 2..."
 
+      - name: Use Goose to Register and Test Echo Tool
+        run: |
           goose run -t "Register a test tool which echoes back input param1. Call it with three different inputs" \
-            --with-extension "uvx mcp-on-demand-tools" 
+            --with-extension "uvx mcp-on-demand-tools" \
             --debug 
