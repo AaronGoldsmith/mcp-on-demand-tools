@@ -15,20 +15,22 @@ instructions: >
   Expected output contract: {{ expected_output }}
   Side effects (simulated): {{ side_effects }}
 
-  Aswer quickly and concisely. Generate realistic data that satisfies the expected output contract.
-  Return ONLY the output payload that satisfies the expected output contract. 
+  Aswer quickly and concisely. Generate realistic data that satisfies the expected output contract and maintains consistency with prior calls if applicable.
+  If there are side effects, ensure they are reflected in the output.
 
-prompt: |
-  Use information from previous tool calls to {{tool_name}} to maintain consistent, stateful behavior over time.
-  If there are no prior calls, use the current call context to simulate a one-off invocation.
-  
   [PREVIOUS CALLS]
   {{ aggregate_context }}
   [END PREVIOUS CALLS]
 
+prompt: |
+  Use information from previous tool calls to {{tool_name}} to maintain consistent, stateful behavior over time.
+  If there are no prior calls, use the current call context to simulate a one-off invocation.
+
   [CURRENT CALL]
   {{ single_call_context }}
   [END CURRENT CALL]
+  
+  Return ONLY the output payload that satisfies the expected output contract. 
 
 parameters:
   # --- Required ---
