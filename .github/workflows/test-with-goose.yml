@@ -11,11 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OLLAMA_HOST: http://127.0.0.1:11434
-      # OLLAMA_CONTEXT_LENGTH: "32768"
-      GOOSE_TOOLSHIM: "1"
-      GOOSE_TOOLSHIM_OLLAMA_MODEL: "llama3.2"
-      GOOSE_MODEL: "llama3.2"
-      GOOSE_PROVIDER: "ollama"
+      GOOSE_MODEL: "qwen/qwen3-coder"
+      GOOSE_PROVIDER: "openrouter"
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 
     steps:
@@ -23,28 +21,6 @@ jobs:
 
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-
-      - name: Cache Ollama models
-        uses: actions/cache@v4
-        with:
-          path: ~/.ollama
-          key: ollama-${{ runner.os }}-llama3.2
-          restore-keys: |
-            ollama-${{ runner.os }}-
-
-      - name: Install Ollama
-        run: curl -fsSL https://ollama.com/install.sh | bash
-
-      - name: Start Ollama
-        run: |
-          nohup env OLLAMA_CONTEXT_LENGTH=$OLLAMA_CONTEXT_LENGTH ollama serve > /tmp/ollama.log 2>&1 &
-          for i in {1..40}; do
-            curl -sSf ${OLLAMA_HOST}/api/tags && break
-            sleep 1
-          done
-
-      - name: Pull model
-        run: ollama pull $GOOSE_TOOLSHIM_OLLAMA_MODEL
 
       - name: Install Goose
         run: |
@@ -55,7 +31,7 @@ jobs:
         run: |
           goose run --recipe src/mcp_on_demand_tools/recipes/render_template.yaml \
             --params tool_name="Test Tool" \
-            --params tool_description="A test tool to verify aggregate context handling" \
+            --params tool_description="A tool to verify aggregate context handling" \
             --params expected_output="A simple string response" \
             --params side_effects="None - data generation" \
             --params single_call_context="{\"param1\": \"third\"} | Return only the output payload that satisfies the contract." \
