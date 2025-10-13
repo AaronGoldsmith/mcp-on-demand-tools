@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OLLAMA_HOST: http://127.0.0.1:11434
-      OLLAMA_CONTEXT_LENGTH: "32768"
+      # OLLAMA_CONTEXT_LENGTH: "32768"
       GOOSE_TOOLSHIM: "1"
       GOOSE_TOOLSHIM_OLLAMA_MODEL: "llama3.2"
       GOOSE_MODEL: "llama3.2"
