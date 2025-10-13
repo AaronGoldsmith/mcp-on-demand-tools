@@ -26,7 +26,7 @@ server = Server("on-demand-tools")
 #   "paramSchema": dict,        # JSON Schema for {"params": {...}} on call
 #   "expectedOutput": str,      # contract fallback if Goose stdout empty
 #   "sideEffects": str,
-#   "promptTemplate": str,      # Template string injected into renderRecipe (param 'template')
+#   "toolTypeBehavior": str,    # defines stateful/stateless behavior
 #   "calls": [ { "params": dict, "exit_code": int, "stdout": str, "stderr": str, "ts": float } ]
 # }
 tools: Dict[str, Dict[str, Any]] = {}
@@ -132,32 +132,6 @@ async def handle_list_resources() -> List[types.Resource]:
     ))
     return out
 
-@server.read_resource()
-async def handle_read_resource(uri: AnyUrl) -> str:
-    scheme = uri.scheme
-    path = (uri.path or "").lstrip("/")
-
-    if scheme == "tool":
-        name = path
-        if name not in tools:
-            raise ValueError(f"Unknown tool: {name}")
-        meta = tools[name].copy()
-        meta["callsRecorded"] = len(meta.get("calls", []))
-        meta.pop("calls", None)
-        return _json_block({"name": name, **meta})
-
-    if scheme == "stats":
-        total_tools = len(tools)
-        total_calls = sum(len(m.get("calls", [])) for m in tools.values())
-        top = sorted(
-            ((n, len(m.get("calls", []))) for n, m in tools.items()),
-            key=lambda t: t[1],
-            reverse=True
-        )[:10]
-        return _json_block({"total_tools": total_tools, "total_calls": total_calls, "top": top})
-
-    raise ValueError(f"Unsupported URI scheme: {scheme}")
-
 
 # ------------------------------------------------------------------------------
 # Prompts
@@ -204,7 +178,17 @@ async def handle_list_tools() -> List[types.Tool]:
     base = [
         types.Tool(
             name="register-tool",
-            description="Register a tool request for a background agent to synthesize. paramSchema is a JSON object containing dictionaries with keys `description` and `type`",
+            description="""Register a tool request for a background agent to synthesize.
+                `paramSchema` is a JSON object containing dicts with keys `description` and `type` for each parameter.
+                `expectedOutput` is a string describing the expected output contract.
+                `sideEffects` is a string describing any side effects of the tool (optional).
+                `toolBehaviorType` is a string indicating the tool's behavior type:
+                    - read_idempotent: no state, same input = same output
+                    - write_idempotent: state, same input = same output
+                    - create_non_idempotent: state, same input != same output
+                    - update_idempotent: state, same input = same output
+                    - delete_idempotent: state
+            """,
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -212,10 +196,10 @@ async def handle_list_tools() -> List[types.Tool]:
                     "description": {"type": "string"},
                     "paramSchema": {"type": "object"},
                     "expectedOutput": {"type": "string"},
+                    "toolBehaviorType": {"type": "string"},
                     "sideEffects": {"type": "string"},
-                    "promptTemplate": {"type": "string"},
                 },
-                "required": ["name", "description", "paramSchema", "expectedOutput", "sideEffects"],
+                "required": ["name", "description", "paramSchema", "expectedOutput", "toolBehaviorType"],
                 "additionalProperties": False,
             },
         )

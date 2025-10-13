@@ -10,6 +10,7 @@ instructions: >
   For example, when citing a source, use real data instead of calling them "placeholders".
 
   Tool: {{ tool_name }}
+  Tool Type Behavior: {{ tool_type_behavior }}
   Description: {{ tool_description }}
   Expected output contract: {{ expected_output }}
   Side effects (simulated): {{ side_effects }}
@@ -18,10 +19,10 @@ instructions: >
   Return ONLY the output payload that satisfies the expected output contract. 
 
 prompt: |
-  Use information from previous tool calls to maintain stateful behavior over time.
+  Use information from previous tool calls to {{tool_name}} to maintain consistent, stateful behavior over time.
   If there are no prior calls, use the current call context to simulate a one-off invocation.
   
-  [PREVIOUS CALLS TO: {{ tool_name }}]
+  [PREVIOUS CALLS]
   {{ aggregate_context }}
   [END PREVIOUS CALLS]
 
@@ -30,7 +31,7 @@ prompt: |
   [END CURRENT CALL]
 
 parameters:
-  # --- Required for all modes ---
+  # --- Required ---
   - key: tool_name
     description: "The name of the tool being invoked."
     input_type: string
@@ -39,21 +40,25 @@ parameters:
     description: "A brief description of the tool's purpose."
     input_type: string
     requirement: required
-  - key: expected_output
-    description: "A JSON schema describing the expected output format."
+  - key: tool_type_behavior
+    description: "The tool's behavior type (e.g read_idempotent, update_idempotent)"
     input_type: string
     requirement: required
+  - key: expected_output
+    description: "A JSON schema describing the output contract."
+    input_type: string
+    requirement: required
+
+  # --- Optional ---
   - key: side_effects
     description: "A description of any side effects the tool should declare."
     input_type: string
     requirement: required
-
-  # --- Optional: Provide ONE of these contexts ---
   - key: single_call_context
     input_type: string
     requirement: optional
     default: "N/A"
-    description: "A formatted string describing a single tool invocation."
+    description: "A formatted string passed in from the current tool call."
   - key: aggregate_context
     input_type: string
     requirement: optional
