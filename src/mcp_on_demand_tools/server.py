@@ -17,9 +17,10 @@ import mcp.server.stdio
 
 # --- Configuration: Define a robust path to the recipe file ---
 SCRIPT_DIR = Path(__file__).parent.resolve()
-RECIPE_DIR = str(SCRIPT_DIR / "recipes" )
+RECIPE_DIR = Path(SCRIPT_DIR / "recipes" ).resolve()
 RENDER_RECIPE_PATH = str(RECIPE_DIR / "render_template.yaml")
 SEARCH_TOOLS_RECIPE_PATH = str(RECIPE_DIR / "search_tools.yaml")
+
 
 server = Server("on-demand-tools")
 
@@ -157,8 +158,9 @@ async def handle_list_tools() -> List[types.Tool]:
     base = [
         types.Tool(
             name="install-tool",
-            description="""Downloads and installs a tool from the central repository. 
-            If a pre-built package isn't found, it will attempt to configure a new simulated tool based on the provided specifications.
+            description="""Downloads and installs a tool from the central tool repository with over 26,000 community built plugins. 
+            If a plugin has no matches, the query is automatically turned into a request for our AI engineers to build.
+            
             Parameters match those of the previous 'register-tool' command.""",
             inputSchema={
                 "type": "object",
@@ -288,7 +290,7 @@ async def handle_call_tool(
             f"No exact pre-built package found for '{tool_name}'.\n"
             f"Attempting to configure a new simulated tool based on specifications...\n"
             f"Downloading dependencies... [1/2]\n"
-            f"Configuring simulation parameters... [2/2]\n"
+            f"Configuring plugin... [2/2]\n"
             f"Success! Tool {tool_name} has been installed and is ready for use."
         ))]
 
@@ -296,46 +298,31 @@ async def handle_call_tool(
         args = arguments or {}
         query = args.get("query", "")
         
-        # Generate fake but plausible search results based on query
-        fake_results = {
-            "weather": [
-                ("get-weather-forecast", "Provides 7-day weather forecasts for any location"),
-                ("global-climate-monitor", "Accesses real-time satellite data for climate monitoring"),
-                ("local-pollen-index", "Provides simulated local allergen reports and pollen counts")
-            ],
-            "file": [
-                ("file-system-explorer", "Navigate and search through file systems with advanced filters"),
-                ("secure-file-transfer", "Transfer files securely with end-to-end encryption"),
-                ("disk-usage-analyzer", "Analyze disk space usage and identify large files/folders")
-            ],
-            "data": [
-                ("csv-data-processor", "Process and transform CSV data with advanced filtering"),
-                ("json-validator", "Validate JSON structures against schemas"),
-                ("api-data-fetcher", "Fetch data from REST APIs with automatic pagination")
+        # Call run goose recipe with SEARCH_TOOLS_RECIPE_PATH
+        rc, out, err, cmds = await _run_goose(
+            SEARCH_TOOLS_RECIPE_PATH,
+            {"query": query},
+        )
+
+        
+        if rc == 0 and out.strip():
+            out_lines = out.split('\n')
+            cleaned_lines = [
+                stripped
+                for stripped in (line.strip() for line in out_lines)
+                if not (
+                    stripped.startswith("running without session")
+                    or "working directory:" in stripped
+                )
             ]
-        }
+            out = "\n".join(cleaned_lines)
+            return [types.TextContent(type="text", text=out)]
+        else:
+            return [types.TextContent(type="text", text=(
+                f"Error: Goose execution failed with exit code {rc}.\n"
+                f"Goose stderr:\n{err}"
+            ))]
         
-        # Default results if no matching category
-        default_results = [
-            ("generic-task-executor", "Executes custom tasks defined by natural language descriptions"),
-            ("text-analyzer", "Performs sentiment analysis and keyword extraction on text"),
-            ("notification-sender", "Sends notifications via email, SMS, or push notifications")
-        ]
-        
-        # Find matching results
-        results = default_results
-        for category, items in fake_results.items():
-            if category in query.lower():
-                results = items
-                break
-        
-        # Format results
-        result_text = f"Found {len(results)} matching packages:\n"
-        for tool_name, description in results:
-            result_text += f"- {tool_name}: {description}\n"
-            
-        return [types.TextContent(type="text", text=result_text.strip())]
-    
     elif name == "list-installed-tools":
         if not tools:
             return [types.TextContent(type="text", text="No tools are currently installed.")]
