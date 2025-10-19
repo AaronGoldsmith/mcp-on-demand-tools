@@ -10,14 +10,17 @@ import mcp.server.stdio
 
 # ==============================================================================
 # Goal
-# - Agent registers a tool with a Goose recipe for calls
-# - Reading a *synth resource* triggers Goose with a prompt template
-#   that is filled from saved state (tool metadata and prior calls)
+# - Agent installs a tool with a Goose recipe for calls
+# - Tool calls go through Goose with robust error handling
+# - Tool installation is persistent across sessions
 # ==============================================================================
 
 # --- Configuration: Define a robust path to the recipe file ---
 SCRIPT_DIR = Path(__file__).parent.resolve()
-RENDER_RECIPE_PATH = str(SCRIPT_DIR / "recipes" / "render_template.yaml")
+RECIPE_DIR = Path(SCRIPT_DIR / "recipes" ).resolve()
+RENDER_RECIPE_PATH = str(RECIPE_DIR / "render_template.yaml")
+SEARCH_TOOLS_RECIPE_PATH = str(RECIPE_DIR / "search_tools.yaml")
+
 
 server = Server("on-demand-tools")
 
@@ -30,6 +33,10 @@ server = Server("on-demand-tools")
 #   "calls": [ { "params": dict, "exit_code": int, "stdout": str, "stderr": str, "ts": float } ]
 # }
 tools: Dict[str, Dict[str, Any]] = {}
+
+# Directory for persistent tool storage
+INSTALLED_TOOLS_DIR = Path.home() / ".mcp-on-demand-tools" / "installed"
+INSTALLED_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ------------------------------------------------------------------------------
 # Goose helper
@@ -114,7 +121,7 @@ async def handle_list_prompts() -> List[types.Prompt]:
     return [
         types.Prompt(
             name="plan-with-tools",
-            description="Plan a solution. If a needed tool is missing, call 'register-tool'.",
+            description="Plan a solution. If a needed tool is missing, search for it and install it.",
             arguments=[
                 types.PromptArgument(name="goal", description="Objective", required=True),
                 types.PromptArgument(name="notes", description="Constraints", required=False),
@@ -132,9 +139,10 @@ async def handle_get_prompt(name: str, arguments: Dict[str, str] | None) -> type
         for n, m in tools.items()
     ) or "(no tools yet)"
     text = (
-        "If a needed capability is missing, call MCP tool 'register-tool'.\n\n"
+        "If a needed capability is missing, first call search-tool-repository to find an existing package. "
+        "If you find one (or if you have a clear idea of the tool you need), call install-tool to add it to my session.\n\n"
         f"Goal:\n{args.get('goal', '')}\n\nNotes:\n{args.get('notes') or '(none)'}\n\n"
-        f"Known tools:\n{known}"
+        f"Known Installed Tools:\n{known}"
     )
     return types.GetPromptResult(
         description="Plan and use tools",
@@ -149,18 +157,11 @@ async def handle_get_prompt(name: str, arguments: Dict[str, str] | None) -> type
 async def handle_list_tools() -> List[types.Tool]:
     base = [
         types.Tool(
-            name="register-tool",
-            description="""Register a tool request for a background agent to synthesize.
-                `paramSchema` is a JSON object containing dicts with keys `description` and `type` for each parameter.
-                `expectedOutput` is a string describing the expected output contract.
-                `sideEffects` is a string describing any side effects of the tool (optional).
-                `toolBehaviorType` is a string indicating the tool's behavior type:
-                    - read_idempotent: no state, same input = same output
-                    - write_idempotent: state, same input = same output
-                    - create_non_idempotent: state, same input != same output
-                    - update_idempotent: state, same input = same output
-                    - delete_idempotent: state
-            """,
+            name="install-tool",
+            description="""Downloads and installs a tool from the central tool repository with over 26,000 community built plugins. 
+            If a plugin has no matches, the query is automatically turned into a request for our AI engineers to build.
+            
+            Parameters match those of the previous 'register-tool' command.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -172,6 +173,39 @@ async def handle_list_tools() -> List[types.Tool]:
                     "sideEffects": {"type": "string"},
                 },
                 "required": ["name", "description", "paramSchema", "expectedOutput", "toolBehaviorType"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="search-tool-repository",
+            description="Searches the central tool repository for available packages. Returns a list of matching tool names and their descriptions.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query term (e.g., 'weather', 'file system')"}
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="list-installed-tools",
+            description="Lists all remote tools currently installed and active in this session.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="uninstall-tool",
+            description="Removes a remote tool from the current session, freeing up resources.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Name of the tool to uninstall"}
+                },
+                "required": ["name"],
                 "additionalProperties": False,
             },
         )
@@ -204,7 +238,126 @@ async def handle_list_tools() -> List[types.Tool]:
 async def handle_call_tool(
     name: str, arguments: Dict | None
 ) -> List[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-    if name == "register-tool":
+    # Handle new package manager style tools
+    if name == "install-tool":
+        args = arguments or {}
+        required_fields = ["name", "description", "paramSchema", "expectedOutput", "toolBehaviorType"]
+        if not all(k in args for k in required_fields):
+            raise ValueError(f"Missing one or more required arguments for {name}")
+        
+        tool_name = args["name"]
+        
+        param_schema = args["paramSchema"]
+        if isinstance(param_schema, str):
+            try:
+                param_schema = json.loads(param_schema)
+            except json.JSONDecodeError:
+                raise ValueError("The 'paramSchema' argument was a string but not valid JSON.")
+
+        # Save tool to persistent storage
+        tool_data = {
+            "name": tool_name,
+            "description": args["description"],
+            "paramSchema": param_schema,
+            "expectedOutput": args["expectedOutput"],
+            "toolTypeBehavior": args["toolBehaviorType"],
+            "sideEffects": args.get("sideEffects"),
+        }
+        
+        tool_file_path = INSTALLED_TOOLS_DIR / f"{tool_name}.json"
+        try:
+            with open(tool_file_path, 'w') as f:
+                json.dump(tool_data, f, indent=2)
+        except IOError as e:
+            # If we can't save to persistent storage, we'll still register it in memory
+            print(f"Warning: Could not save tool to persistent storage: {e}")
+
+        # Register tool in memory (with empty calls list)
+        tools[tool_name] = {
+            "description": args["description"],
+            "paramSchema": param_schema,
+            "expectedOutput": args["expectedOutput"],
+            "toolTypeBehavior": args["toolBehaviorType"],
+            "sideEffects": args.get("sideEffects"),
+            "calls": [],
+        }
+        await server.request_context.session.send_tool_list_changed()
+        
+        # Return realistic installation response
+        return [types.TextContent(type="text", text=(
+            f"Connecting to tool repository...\n"
+            f"Searching for matching packages...\n"
+            f"No exact pre-built package found for '{tool_name}'.\n"
+            f"Attempting to configure a new simulated tool based on specifications...\n"
+            f"Downloading dependencies... [1/2]\n"
+            f"Configuring plugin... [2/2]\n"
+            f"Success! Tool {tool_name} has been installed and is ready for use."
+        ))]
+
+    elif name == "search-tool-repository":
+        args = arguments or {}
+        query = args.get("query", "")
+        
+        # Run Goose recipe to search tool repository
+        rc, out, err, cmds = await _run_goose(
+            SEARCH_TOOLS_RECIPE_PATH,
+            {"query": query},
+        )
+        
+        if rc == 0 and out.strip():
+            out_lines = out.split('\n')
+            cleaned_lines = [
+                stripped
+                for stripped in (line.strip() for line in out_lines)
+                if not (
+                    stripped.startswith("running without session")
+                    or "working directory:" in stripped
+                )
+            ]
+            out = "\n".join(cleaned_lines)
+            return [types.TextContent(type="text", text=out)]
+        else:
+            return [types.TextContent(type="text", text=(
+                f"Error: Goose execution failed with exit code {rc}.\n"
+                f"Goose stderr:\n{err}"
+            ))]
+        
+    elif name == "list-installed-tools":
+        if not tools:
+            return [types.TextContent(type="text", text="No tools are currently installed.")]
+        
+        result_text = "Installed tools:\n"
+        for tool_name, tool_meta in tools.items():
+            result_text += f"- {tool_name}: {tool_meta.get('description', '(no description)')}\n"
+            
+        return [types.TextContent(type="text", text=result_text.strip())]
+    
+    elif name == "uninstall-tool":
+        args = arguments or {}
+        tool_name = args.get("name")
+        
+        if not tool_name:
+            raise ValueError("Missing required argument 'name' for uninstall-tool")
+            
+        if tool_name not in tools:
+            return [types.TextContent(type="text", text=f"Tool '{tool_name}' is not installed.")]
+        
+        # Remove from memory
+        del tools[tool_name]
+        
+        # Remove from persistent storage
+        tool_file_path = INSTALLED_TOOLS_DIR / f"{tool_name}.json"
+        if tool_file_path.exists():
+            try:
+                tool_file_path.unlink()
+            except IOError as e:
+                print(f"Warning: Could not remove tool from persistent storage: {e}")
+        
+        await server.request_context.session.send_tool_list_changed()
+        return [types.TextContent(type="text", text=f"Tool '{tool_name}' has been successfully uninstalled.")]
+
+    # Handle legacy register-tool for backward compatibility
+    elif name == "register-tool":
         args = arguments or {}
         if not all(k in args for k in ["name", "description", "paramSchema", "expectedOutput", "toolBehaviorType"]):
             raise ValueError("Missing one or more required arguments for register-tool")
@@ -312,14 +465,36 @@ async def handle_call_tool(
 # Entry
 # ------------------------------------------------------------------------------
 
+def load_installed_tools():
+    """Load previously installed tools from persistent storage."""
+    if not INSTALLED_TOOLS_DIR.exists():
+        return
+    
+    for tool_file in INSTALLED_TOOLS_DIR.glob("*.json"):
+        try:
+            with open(tool_file, 'r') as f:
+                tool_data = json.load(f)
+                tool_name = tool_data.get('name')
+                if tool_name:
+                    # Remove the 'name' key as it's used as the dictionary key
+                    tool_data.pop('name', None)
+                    # Initialize empty calls list for persistent tools
+                    tool_data['calls'] = []
+                    tools[tool_name] = tool_data
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"Warning: Could not load tool from {tool_file}: {e}")
+
 async def main():
     """Initializes and runs the MCP server."""
+    # Load previously installed tools
+    load_installed_tools()
+    
     async with mcp.server.stdio.stdio_server() as (rs, ws):
         await server.run(
             rs, ws,
             InitializationOptions(
                 server_name="on-demand-tools",
-                server_version="0.1.2",
+                server_version="0.1.3",
                 capabilities=server.get_capabilities(
                     notification_options=NotificationOptions(
                         tools_changed=True,
