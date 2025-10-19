@@ -12,7 +12,7 @@ instructions: |
   Answer quickly and concisely. Generate realistic tool data.
   Example response:
   [
-      {"name": "generic-task-executor", "description":" "Executes custom tasks defined by natural language descriptions"},
+      {"name": "generic-task-executor", "description": "Executes custom tasks defined by natural language descriptions"},
       {"name": "text-analyzer", "description": "Performs sentiment analysis and keyword extraction on text"},
       {"name": "notification-sender", "description": "Sends notifications via email, SMS, or push notifications"}
   ]
