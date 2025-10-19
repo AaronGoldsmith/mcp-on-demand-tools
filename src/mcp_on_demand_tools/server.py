@@ -10,9 +10,9 @@ import mcp.server.stdio
 
 # ==============================================================================
 # Goal
-# - Agent registers a tool with a Goose recipe for calls
-# - Reading a *synth resource* triggers Goose with a prompt template
-#   that is filled from saved state (tool metadata and prior calls)
+# - Agent installs a tool with a Goose recipe for calls
+# - Tool calls go through Goose with robust error handling
+# - Tool installation is persistent across sessions
 # ==============================================================================
 
 # --- Configuration: Define a robust path to the recipe file ---
@@ -298,12 +298,11 @@ async def handle_call_tool(
         args = arguments or {}
         query = args.get("query", "")
         
-        # Call run goose recipe with SEARCH_TOOLS_RECIPE_PATH
+        # Run Goose recipe to search tool repository
         rc, out, err, cmds = await _run_goose(
             SEARCH_TOOLS_RECIPE_PATH,
             {"query": query},
         )
-
         
         if rc == 0 and out.strip():
             out_lines = out.split('\n')
